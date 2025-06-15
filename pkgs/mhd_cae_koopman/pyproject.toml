@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mhd_cae_koopman"
+version = "0.0.1"
+authors = [
+  { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
+]
+maintainers = [
+  { name="Michael Skowronek", email="michael.skowronek.91@gmail.com" },
+]
+description = "Python package for mhd_cae_koopman."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy",
+]
+
+[tool.setuptools.package-dir]
+mhd_cae_koopman = "src/mhd_cae_koopman"
