@@ -24,14 +24,12 @@
 
 # --- Configuration ---
 # 1. Set the full path to the Python script you want to run.
-#    Tip: For better portability, you can define the path relative to this script.
-#    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-#    PYTHON_SCRIPT="$SCRIPT_DIR/convert_tecplot.py"
-PYTHON_SCRIPT="/path/to/your/project/convert_tecplot.py"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PYTHON_SCRIPT="$SCRIPT_DIR/store_tecplot_as_pickle.py"
 
 
 # 2. Set the hardcoded arguments for the Python script.
-ARGUMENTS="--ha 300 --file_name vxyz_jxyz_p_f.dat --verify"
+ARGUMENTS="--ha 300 --file_name vxyz_jxyz_p_f.dat --data_dir ../../../../../../data --verify"
 # --- End of Configuration ---
 
 
