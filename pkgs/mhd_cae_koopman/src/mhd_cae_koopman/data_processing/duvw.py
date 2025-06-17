@@ -20,8 +20,8 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
     2. A series of records, each with 6 double-precision values:
        x, y, z, and three other variables (e.g., du/dx, du/dy, du/dz).
 
-    This function reads the data and converts it to a C-contiguous (row-major)
-    memory layout, which is standard for ML libraries like PyTorch.
+    This function reads the data, which is already in C-contiguous order
+    due to the Fortran loop structure (k, j, i), and loads it efficiently.
 
     Args:
         file_path (Path): The path to the binary .dat file.
@@ -73,52 +73,20 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
             timeseries_data = np.zeros(
                 (num_timesteps, num_points, num_variables), 
                 dtype=np.float64,
-                # order='C' is the default
             )
             
             # --- Filling Step ---
             # (5) Reset file pointer and loop through, filling the array.
             f.seek(0)
             for i in tqdm(range(num_timesteps), desc="Processing timesteps"):
-                # Read and optionally verify the header for this block
-                block_dims = np.fromfile(f, dtype=np.int32, count=3)
-                if not np.array_equal(dims, block_dims):
-                    print(
-                        f"Warning: Timestep {i+1} has different dimensions "
-                        f"({block_dims}) than the first timestep ({dims})."
-                    )
+                # Read and discard the header for this block
+                f.seek(header_size_bytes, os.SEEK_CUR)
 
-                # Read the data for one timestep into a flat array
-                temp_chunk = np.fromfile(
-                    f, dtype=np.float64, count=(num_points * num_variables)
-                )
-                
-                # --- Reorder from Fortran (column-major) to C (row-major) ---
-                # 1. Interpret the flat array as a Fortran-ordered grid.
-                #    The shape is (nx, ny, nz, ...) because the 'i' (nx)
-                #    loop is the innermost in the Fortran code.
-                #    This is a view; no data is copied here.
-                grid_f_order_view = temp_chunk.reshape(
-                    (nx, ny, nz, num_variables),
-                    order='F'
-                )
+                # Read the data for one timestep directly into the final array's slice.
+                # This is efficient as it avoids creating a large temporary chunk in memory.
+                f.readinto(timeseries_data[i])
 
-                # 2. Transpose the axes to match C-style (z, y, x) order.
-                #    This is also a view with modified strides; no data is copied.
-                grid_c_order_view = grid_f_order_view.transpose(2, 1, 0, 3)
-
-                # 3. Reshape the transposed view into the final (points, variables) format.
-                #    Because the view is non-contiguous, this forces a copy of the
-                #    data into a new C-contiguous chunk with correctly ordered points.
-                points_c_order_chunk = grid_c_order_view.reshape(
-                    (num_points, num_variables)
-                )
-
-                # 4. Place the C-ordered data into the final array.
-                #    This is a fast memory copy since layouts match.
-                timeseries_data[i] = points_c_order_chunk
-
-            print(f"  Successfully parsed and converted {num_timesteps} timestep(s).")
+            print(f"  Successfully parsed {num_timesteps} timestep(s).")
             
             # Generate generic labels. The calling script can make these more specific.
             labels = ['x', 'y', 'z', 'var1', 'var2', 'var3']
