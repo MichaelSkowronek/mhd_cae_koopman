@@ -115,7 +115,7 @@ def main():
     parser.add_argument(
         "--data_dir",
         type=Path,
-        default=Path("../../../../../../data"),
+        default=Path("../../../../../data"),
         help="Path to the main data directory.",
     )
     parser.add_argument(

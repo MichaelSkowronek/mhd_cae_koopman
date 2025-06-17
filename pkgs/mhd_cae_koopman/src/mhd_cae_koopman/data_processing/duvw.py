@@ -7,6 +7,7 @@ import os
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple
+from tqdm import tqdm
 
 
 def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
@@ -54,13 +55,16 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
             block_size_bytes = header_size_bytes + data_size_bytes
 
             # (3) Determine total number of timesteps from total file size.
-            total_file_size = os.path.getsize(file_path)
-            if total_file_size % block_size_bytes != 0:
+            # Explicitly cast to 64-bit integers to prevent overflow on the modulo operation.
+            total_file_size_64 = np.int64(os.path.getsize(file_path))
+            block_size_bytes_64 = np.int64(block_size_bytes)
+            
+            if total_file_size_64 % block_size_bytes_64 != 0:
                 raise ValueError(
                     "File size is not a multiple of the calculated block size. "
                     "The file might be corrupt or have inconsistent block sizes."
                 )
-            num_timesteps = total_file_size // block_size_bytes
+            num_timesteps = int(total_file_size_64 // block_size_bytes_64)
             print(f"  Detected {num_timesteps} timestep(s) based on file size.")
 
             # --- Pre-allocation Step ---
@@ -75,7 +79,7 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
             # --- Filling Step ---
             # (5) Reset file pointer and loop through, filling the array.
             f.seek(0)
-            for i in range(num_timesteps):
+            for i in tqdm(range(num_timesteps), desc="Processing timesteps"):
                 # Read and optionally verify the header for this block
                 block_dims = np.fromfile(f, dtype=np.int32, count=3)
                 if not np.array_equal(dims, block_dims):
