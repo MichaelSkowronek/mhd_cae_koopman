@@ -45,7 +45,7 @@ def truncate_file_at_line(
         filepath (str): The path to the original file.
         line_number (int): The line number at which to truncate the file.
         output_filepath (str, optional): The path for the truncated copy. 
-                                          If not provided, a default name will be used.
+                                         If not provided, a default name will be used.
 
     Returns:
         Path: The path of the truncated file.
@@ -104,40 +104,59 @@ def print_timeseries_info(
 ):
     """Prints a summary of a loaded timeseries dataset.
 
-    This function provides a human-readable overview of a timeseries array,
-    displaying its dimensions, the names of its variables, the calculated
-    grid dimensions, and a small preview of the data.
+    This function provides a human-readable overview of a timeseries array.
+    It intelligently handles both 3D (timesteps, points, vars) and 5D
+    (timesteps, nx, ny, nz, vars) arrays.
 
     Args:
-        timeseries (numpy.ndarray): A 3D NumPy array with dimensions
-            representing (time, points, variables).
+        timeseries (numpy.ndarray): A 3D or 5D NumPy array.
         labels (list): A list of strings for each variable.
-        coord_indices (tuple, optional): A tuple of three integers representing
-            the column indices of the x, y, and z coordinate variables.
-            Defaults to (0, 1, 2).
+        coord_indices (tuple, optional): For 3D arrays, a tuple of three
+            integers representing the column indices of the x, y, and z
+            coordinate variables. Defaults to (0, 1, 2).
     """
-    # Validate that the input array is a non-empty 3D array.
-    if not isinstance(timeseries, np.ndarray) or timeseries.ndim != 3 or timeseries.size == 0:
-        print("Cannot display info: Data is empty or not a valid 3D NumPy array.")
+    if not isinstance(timeseries, np.ndarray) or timeseries.size == 0:
+        print("Cannot display info: Data is empty or not a valid NumPy array.")
         return
 
     print("\n" + "="*30)
     print("Timeseries Data Summary")
     print("="*30)
 
-    # Extract dimensions for clarity.
-    num_snapshots, num_points, num_variables = timeseries.shape
+    # --- Handle 5D arrays: (timesteps, nx, ny, nz, vars) ---
+    if timeseries.ndim == 5:
+        num_snapshots, nx, ny, nz, num_variables = timeseries.shape
+        num_points = nx * ny * nz
+        
+        print(f"Number of snapshots (time steps): {num_snapshots}")
+        print(f"Grid dimensions (nx, ny, nz):   {nx} x {ny} x {nz}")
+        print(f"Number of points per snapshot:  {num_points}")
+        print(f"Number of variables:              {num_variables}")
+        
+        # For preview, create a 3D view without copying data
+        preview_array = timeseries.reshape((num_snapshots, num_points, num_variables))
 
-    print(f"Number of snapshots (time steps): {num_snapshots}")
-    print(f"Number of points per snapshot:    {num_points}")
-    print(f"Number of variables:              {num_variables}")
+    # --- Handle 3D arrays: (timesteps, points, vars) ---
+    elif timeseries.ndim == 3:
+        num_snapshots, num_points, num_variables = timeseries.shape
+        
+        print(f"Number of snapshots (time steps): {num_snapshots}")
+        print(f"Number of points per snapshot:    {num_points}")
+        print(f"Number of variables:              {num_variables}")
 
-    # Calculate and print grid dimensions.
-    grid_dims = get_grid_dimensions(timeseries, coord_indices=coord_indices)
-    if grid_dims:
-        nx, ny, nz = grid_dims
-        print(f"Calculated grid dimensions:       {nx} x {ny} x {nz} (using indices {coord_indices})")
-
+        # Calculate grid dimensions from the flat point data
+        grid_dims = get_grid_dimensions(timeseries, coord_indices=coord_indices)
+        if grid_dims:
+            nx, ny, nz = grid_dims
+            print(f"Calculated grid dimensions:       {nx} x {ny} x {nz} (using indices {coord_indices})")
+        
+        preview_array = timeseries
+    
+    # --- Handle other array shapes ---
+    else:
+        print(f"Cannot display detailed info: Array has an unsupported dimension ({timeseries.ndim}).")
+        print(f"Array shape: {timeseries.shape}")
+        return
 
     print("\n--- Variable Labels ---")
     print(labels)
@@ -150,7 +169,7 @@ def print_timeseries_info(
         print("No data points to preview.")
     else:
         for i in range(preview_count):
-            print(f"  Point {i+1:<2}: {timeseries[0, i, :]}")
+            print(f"  Point {i+1:<2}: {preview_array[0, i, :]}")
     print("="*30)
 
 
@@ -159,7 +178,7 @@ def get_grid_dimensions(
     *,
     coord_indices=(0, 1, 2),
 ):
-    """Calculates the number of unique points along specified coordinate axes.
+    """Calculates grid dimensions from a 3D (time, points, vars) array.
 
     This function assumes the data represents a structured grid and counts the
     number of unique values for each specified coordinate in the first time
@@ -177,16 +196,13 @@ def get_grid_dimensions(
         x, y, and z axes (nx, ny, nz). Returns None if the data is invalid
         or if coordinate indices are out of bounds.
     """
-    # Validate that the input array is a non-empty 3D array.
     if not isinstance(timeseries, np.ndarray) or timeseries.ndim != 3 or timeseries.size == 0:
-        # Silently fail for internal call, parent function will print error.
         return None
 
     if len(coord_indices) != 3:
         print(f"Error (get_grid_dimensions): Expected 3 coordinate indices, but got {len(coord_indices)}.")
         return None
 
-    # Check if indices are valid for the given timeseries array.
     num_variables = timeseries.shape[2]
     if not all(0 <= i < num_variables for i in coord_indices):
         print(f"Error (get_grid_dimensions): One or more coordinate indices {coord_indices} are out of bounds for the number of variables ({num_variables}).")
@@ -194,16 +210,11 @@ def get_grid_dimensions(
 
     x_idx, y_idx, z_idx = coord_indices
 
-    # We only need to inspect the first snapshot to determine grid dimensions,
-    # assuming the grid structure is constant over time.
     first_snapshot_data = timeseries[0, :, :]
-
-    # Extract the coordinate columns using the identified indices.
     x_coords = first_snapshot_data[:, x_idx]
     y_coords = first_snapshot_data[:, y_idx]
     z_coords = first_snapshot_data[:, z_idx]
 
-    # Count the number of unique values in each coordinate column.
     nx = len(np.unique(x_coords))
     ny = len(np.unique(y_coords))
     nz = len(np.unique(z_coords))

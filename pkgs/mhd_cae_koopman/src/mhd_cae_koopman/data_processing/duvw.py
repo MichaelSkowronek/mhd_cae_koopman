@@ -10,26 +10,74 @@ from typing import List, Tuple
 from tqdm import tqdm
 
 
-def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
+def _parse_memory_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes) -> np.ndarray:
+    """Processes the file iteratively, optimizing for low memory usage."""
+    print("  Processing with memory-optimized strategy (slower, less RAM).")
+    timeseries_data = np.zeros(
+        (num_timesteps, nx, ny, nz, num_variables), 
+        dtype=np.float64,
+    )
+    
+    f.seek(0)
+    for i in tqdm(range(num_timesteps), desc="Processing timesteps iteratively"):
+        f.seek(header_size_bytes, os.SEEK_CUR)
+        temp_chunk = np.fromfile(f, dtype=np.float64, count=(nx * ny * nz * num_variables))
+        
+        grid_zyx_view = temp_chunk.reshape((nz, ny, nx, num_variables))
+        grid_xyz_transposed_view = grid_zyx_view.transpose(2, 1, 0, 3)
+        grid_xyz_C_ordered = np.ascontiguousarray(grid_xyz_transposed_view)
+        
+        timeseries_data[i] = grid_xyz_C_ordered
+        
+    return timeseries_data
+
+
+def _parse_speed_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes) -> np.ndarray:
+    """Processes the file in a single vectorized operation, optimizing for speed."""
+    print("  Processing with speed-optimized strategy (faster, more RAM).")
+    
+    # Pre-allocate array to hold the raw, C-ordered (but logically z,y,x) data
+    raw_timeseries = np.zeros(
+        (num_timesteps, nz * ny * nx * num_variables),
+        dtype=np.float64
+    )
+    
+    # Read all data blocks into the array at once
+    f.seek(0)
+    for i in tqdm(range(num_timesteps), desc="Reading all data blocks"):
+        f.seek(header_size_bytes, os.SEEK_CUR)
+        f.readinto(raw_timeseries[i])
+        
+    # Perform the reordering on the entire dataset at once
+    print("  Re-ordering all timesteps in a single operation...")
+    grid_zyx_view_full = raw_timeseries.reshape((num_timesteps, nz, ny, nx, num_variables))
+    grid_xyz_transposed_view_full = grid_zyx_view_full.transpose(0, 3, 2, 1, 4)
+    timeseries_data = np.ascontiguousarray(grid_xyz_transposed_view_full)
+    
+    return timeseries_data
+
+
+def parse_duvw_binary(file_path: Path, memory_optimized: bool = True) -> Tuple[np.ndarray, List[str]]:
     """
     Reads a binary data file containing one or more timesteps efficiently.
 
-    The binary file format is based on a Fortran routine that appends
-    data for each timestep. Each block consists of:
-    1. Three integer*4 values: nx, ny, nz
-    2. A series of records, each with 6 double-precision values:
-       x, y, z, and three other variables (e.g., du/dx, du/dy, du/dz).
-
-    This function reads the data, which is already in C-contiguous order
-    due to the Fortran loop structure (k, j, i), and loads it efficiently.
+    This function can use two strategies:
+    1. Memory-optimized (default): Processes the file timestep by timestep. This is
+       slower but requires much less peak RAM, making it safe for very large
+       files on typical systems.
+    2. Speed-optimized: Reads the entire file into memory and performs one
+       large re-ordering operation. This is significantly faster but requires
+       at least 2x the file size in available RAM.
 
     Args:
         file_path (Path): The path to the binary .dat file.
+        memory_optimized (bool, optional): If True (default), uses the low-memory
+                                           strategy. If False, uses the faster,
+                                           high-memory strategy.
 
     Returns:
         A tuple containing:
-        - np.ndarray: C-contiguous NumPy array of shape (timesteps, points, 6),
-                      where points is nx*ny*nz.
+        - np.ndarray: C-contiguous NumPy array of shape (timesteps, nx, ny, nz, 6).
         - List[str]: A list of labels for the variables.
     """
     if not file_path.is_file():
@@ -38,8 +86,7 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
     print(f"Optimized parsing of binary data from: {file_path}")
     try:
         with open(file_path, 'rb') as f:
-            # --- Pre-computation Step ---
-            # (1) Read the header of the first block to get dimensions.
+            # --- Pre-computation Step (common for both strategies) ---
             dims = np.fromfile(f, dtype=np.int32, count=3)
             if dims.size == 0:
                 raise ValueError("File is empty or contains no valid data blocks.")
@@ -47,15 +94,12 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
             nx, ny, nz = dims
             print(f"  Grid dimensions: nx={nx}, ny={ny}, nz={nz}")
 
-            # (2) Calculate the size of a single timestep block in bytes.
             num_points = nx * ny * nz
             num_variables = 6
             header_size_bytes = dims.nbytes
             data_size_bytes = num_points * num_variables * np.dtype(np.float64).itemsize
             block_size_bytes = header_size_bytes + data_size_bytes
 
-            # (3) Determine total number of timesteps from total file size.
-            # Explicitly cast to 64-bit integers to prevent overflow on the modulo operation.
             total_file_size_64 = np.int64(os.path.getsize(file_path))
             block_size_bytes_64 = np.int64(block_size_bytes)
             
@@ -67,28 +111,14 @@ def parse_duvw_binary(file_path: Path) -> Tuple[np.ndarray, List[str]]:
             num_timesteps = int(total_file_size_64 // block_size_bytes_64)
             print(f"  Detected {num_timesteps} timestep(s) based on file size.")
 
-            # --- Pre-allocation Step ---
-            # (4) Pre-allocate the final NumPy array in C-order (the default).
-            print("  Pre-allocating C-ordered memory for the full timeseries...")
-            timeseries_data = np.zeros(
-                (num_timesteps, num_points, num_variables), 
-                dtype=np.float64,
-            )
+            # --- Strategy Selection ---
+            if memory_optimized:
+                timeseries_data = _parse_memory_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes)
+            else:
+                timeseries_data = _parse_speed_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes)
+                
+            print(f"  Successfully parsed and re-ordered {num_timesteps} timestep(s).")
             
-            # --- Filling Step ---
-            # (5) Reset file pointer and loop through, filling the array.
-            f.seek(0)
-            for i in tqdm(range(num_timesteps), desc="Processing timesteps"):
-                # Read and discard the header for this block
-                f.seek(header_size_bytes, os.SEEK_CUR)
-
-                # Read the data for one timestep directly into the final array's slice.
-                # This is efficient as it avoids creating a large temporary chunk in memory.
-                f.readinto(timeseries_data[i])
-
-            print(f"  Successfully parsed {num_timesteps} timestep(s).")
-            
-            # Generate generic labels. The calling script can make these more specific.
             labels = ['x', 'y', 'z', 'var1', 'var2', 'var3']
             
             return timeseries_data, labels

@@ -39,6 +39,7 @@ except ImportError as e:
 def process_duvw_data(
     duvw_file: Path,
     output_path: Path,
+    memory_optimized: bool,
     verify: bool = False,
     verbose: bool = True,
 ):
@@ -48,6 +49,8 @@ def process_duvw_data(
     Args:
         duvw_file (Path): The path to the input .dat file (e.g., du.dat).
         output_path (Path): The path where the output .pkl file will be saved.
+        memory_optimized (bool): Controls the parsing strategy. True for low-memory,
+                                 False for high-speed.
         verify (bool, optional): If True, loads the pickle file after saving to
                                  verify its contents. Defaults to False.
         verbose (bool, optional): If True, prints detailed information.
@@ -56,8 +59,8 @@ def process_duvw_data(
         print(f"Error: Data file not found at {duvw_file}")
         sys.exit(1)
 
-    # Load the data using the custom parser
-    timeseries, labels = parse_duvw_binary(duvw_file)
+    # Load the data using the custom parser and the selected strategy
+    timeseries, labels = parse_duvw_binary(duvw_file, memory_optimized=memory_optimized)
 
     # Make labels more specific based on the filename
     filename_stem = duvw_file.stem  # e.g., "du"
@@ -73,8 +76,8 @@ def process_duvw_data(
     data = {'timeseries': timeseries, 'labels': specific_labels}
 
     if verbose:
-        print("\n--- Loaded Data Summary ---")
         print_timeseries_info(data['timeseries'], data['labels'])
+
 
     # Save the processed data using your project's save_object utility
     print(f"\nSaving processed data to: {output_path}")
@@ -84,7 +87,10 @@ def process_duvw_data(
         print("\n--- Verification Step ---")
         print(f"Loading data from pickle file for verification: {output_path}")
         loaded_data = load_object(output_path)
-        print_timeseries_info(loaded_data['timeseries'], loaded_data['labels'])
+        
+        if verbose:
+            print_timeseries_info(loaded_data['timeseries'], loaded_data['labels'])
+
         # A simple check to ensure data consistency
         assert np.array_equal(
             data['timeseries'], loaded_data['timeseries']
@@ -115,8 +121,13 @@ def main():
     parser.add_argument(
         "--data_dir",
         type=Path,
-        default=Path("../../../../../data"),
+        default=Path("../../../../../../data"),
         help="Path to the main data directory.",
+    )
+    parser.add_argument(
+        "--fast-mode",
+        action='store_true',
+        help="Use the faster, high-memory parsing strategy. Default is memory-optimized.",
     )
     parser.add_argument(
         "--verify",
@@ -141,6 +152,7 @@ def main():
     process_duvw_data(
         duvw_file=duvw_file_path,
         output_path=pkl_store_file_path,
+        memory_optimized=not args.fast_mode,
         verify=args.verify,
         verbose=not args.quiet,
     )
@@ -148,4 +160,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
