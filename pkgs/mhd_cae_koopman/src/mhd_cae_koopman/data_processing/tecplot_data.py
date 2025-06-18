@@ -13,127 +13,163 @@ import re
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
+from typing import Tuple, List
+
+
+def _pre_scan_tecplot(file_path: Path) -> Tuple[int, int, int, int, List[str]]:
+    """Performs a quick first pass to determine the file's complete structure."""
+    num_snapshots = 0
+    headers = []
+    
+    re_title = re.compile(r'title', re.IGNORECASE)
+    re_variables = re.compile(r'variables', re.IGNORECASE)
+
+    # First, find total snapshots and headers
+    with file_path.open('r') as f:
+        for line in f:
+            if re_title.match(line):
+                num_snapshots += 1
+            elif re_variables.match(line) and not headers:
+                headers = [h.strip('"') for h in re.findall(r'"(.*?)"', line)]
+
+    if num_snapshots == 0:
+        return 0, 0, 0, 0, []
+
+    # Second, read all points of the first snapshot to determine grid dimensions
+    first_snapshot_points = []
+    in_first_snapshot = False
+    with file_path.open('r') as f:
+        for line in f:
+            line = line.strip()
+            if re_title.match(line):
+                if not in_first_snapshot:
+                    in_first_snapshot = True
+                else:
+                    break  # End of first snapshot
+            
+            if in_first_snapshot and line and not re.match(r'title|variables|zone', line, re.IGNORECASE):
+                try:
+                    values = [float(v) for v in line.split()]
+                    if headers and len(values) == len(headers):
+                        first_snapshot_points.append(values)
+                except ValueError:
+                    continue
+    
+    if not first_snapshot_points:
+        return num_snapshots, 0, 0, 0, headers
+
+    # Calculate grid dimensions from the collected points
+    first_snapshot_arr = np.array(first_snapshot_points)
+    nx = len(np.unique(first_snapshot_arr[:, 0]))
+    ny = len(np.unique(first_snapshot_arr[:, 1]))
+    nz = len(np.unique(first_snapshot_arr[:, 2]))
+
+    if nx * ny * nz != len(first_snapshot_arr):
+        raise ValueError(
+            "The data does not form a complete structured grid. "
+            f"Calculated dimensions {nx}x{ny}x{nz}={nx*ny*nz} do not match "
+            f"the number of points found ({len(first_snapshot_arr)})."
+        )
+
+    return num_snapshots, nx, ny, nz, headers
 
 
 def parse_tecplot_timeseries(
-    file_path,
+    file_path: Path,
     *,
     dtype=np.float64,
-):
+) -> Tuple[np.ndarray, List[str]]:
     """
-    Parses a large Tecplot ASCII timeseries file into a 3D NumPy array using a
-    memory-efficient, snapshot-by-snapshot approach with a progress bar.
-
-    This function reads the file line-by-line, converting each snapshot into a
-    NumPy array before reading the next one. This avoids loading the entire
-    file into a Python list, preventing out-of-memory errors for very large files.
-    The entire dataset is loaded into a single 3D NumPy array with the
-    following dimensions:
-    1.  Time: The index of the snapshot.
-    2.  Points: The index of the data point within a snapshot.
-    3.  Variables: The index of the variable for that point.
+    Parses a large Tecplot ASCII timeseries file into a 5D NumPy array using a
+    memory-efficient, pre-allocation approach. It automatically determines
+    the grid dimensions from the first snapshot.
 
     Args:
         file_path (pathlib.Path or str): The path to the Tecplot data file.
         dtype (type, optional): The target NumPy data type for the array.
-                                Defaults to np.float64 (standard float).
-                                Use np.float32 for reduced memory usage.
+                                Defaults to np.float64.
 
     Returns:
         tuple: A tuple containing:
-            - numpy.ndarray: A 3D array of shape (time, points, variables).
-              Returns an empty array if no data is found.
+            - numpy.ndarray: A 5D array of shape (timesteps, nx, ny, nz, variables).
             - list: A list of strings containing the variable headers.
     """
     file_path = Path(file_path)
 
-    # Precompile case-insensitive regex patterns for parsing Tecplot keywords.
+    print("Pre-scanning Tecplot file to determine structure...")
+    num_snapshots, nx, ny, nz, headers = _pre_scan_tecplot(file_path)
+    
+    if num_snapshots == 0 or not headers:
+        print("Warning: Could not determine file structure. No data will be parsed.")
+        return np.empty((0, 0, 0, 0, 0), dtype=dtype), []
+
+    num_points = nx * ny * nz
+    num_variables = len(headers)
+    print(f"  Found {num_snapshots} snapshots and {num_variables} variables.")
+    print(f"  Determined grid dimensions: {nx} x {ny} x {nz} ({num_points} points/snapshot).")
+    print(f"  Found headers: {headers}")
+
+    print("Pre-allocating memory for the full 5D timeseries...")
+    timeseries_data = np.zeros((num_snapshots, nx, ny, nz, num_variables), dtype=dtype)
+    
+    # Create a temporary buffer to hold one snapshot's flat data
+    snapshot_buffer = np.zeros(num_points * num_variables, dtype=dtype)
+    
+    current_snapshot_index = -1
+    current_point_index = 0
+    
     re_title = re.compile(r'title', re.IGNORECASE)
-    re_variables = re.compile(r'variables', re.IGNORECASE)
-    re_zone = re.compile(r'zone', re.IGNORECASE)
-
-    all_snapshots_np = []
-    current_snapshot_data = []
-    headers = []
-    snapshot_count = 0
-
-    print(f"Starting memory-efficient parsing of: {file_path}")
-    print(f"Using data type: {np.dtype(dtype).name}")
-
-    # First pass to count lines for the progress bar
-    print("Performing first pass to count lines for progress bar...")
-    with file_path.open('r') as f:
-        total_lines = sum(1 for line in f)
+    re_non_data = re.compile(r'title|variables|zone', re.IGNORECASE)
 
     with file_path.open('r') as file:
-        # Wrap the file object with tqdm for a progress bar
-        for line in tqdm(file, total=total_lines, desc="Reading Tecplot File", unit="lines"):
+        total_lines = sum(1 for line in file)
+        file.seek(0)
+        
+        for line_num, line in enumerate(tqdm(file, total=total_lines, desc="Reading Tecplot File", unit="lines")):
             line = line.strip()
-
-            if not line:  # Skip empty lines
+            if not line:
                 continue
 
-            # 'title' marks the beginning of a new snapshot. The data from the
-            # previous snapshot is processed and stored.
             if re_title.match(line):
-                if current_snapshot_data:
-                    snapshot_count += 1
-                    # Convert the completed snapshot to a NumPy array
-                    snapshot_np = np.array(current_snapshot_data, dtype=dtype)
-                    all_snapshots_np.append(snapshot_np)
-                
-                # Reset buffer for the new snapshot
-                current_snapshot_data = []
+                # If we have finished a snapshot, process it
+                if current_snapshot_index > -1:
+                    # Reorder the flat buffer into the final grid structure
+                    grid_zyx_view = snapshot_buffer.reshape((nz, ny, nx, num_variables))
+                    grid_xyz_transposed_view = grid_zyx_view.transpose(2, 1, 0, 3)
+                    timeseries_data[current_snapshot_index] = np.ascontiguousarray(grid_xyz_transposed_view)
 
-            # 'variables' defines the data headers. This is parsed only once.
-            elif re_variables.match(line):
-                if not headers:
-                    # Extracts all quoted strings from the line to form headers.
-                    headers = [h.strip('"') for h in re.findall(r'"(.*?)"', line)]
-                    print(f"\nFound headers: {headers}")
-
-            # 'zone' lines are part of the Tecplot format but are not used here.
-            elif re_zone.match(line):
+                # Start new snapshot
+                current_snapshot_index += 1
+                current_point_index = 0
+                continue
+            
+            if re_non_data.match(line):
                 continue
 
-            # Lines that are not keywords are treated as numerical data.
-            else:
-                try:
-                    # Append row data as a list of floats
-                    values = [float(v) for v in line.split()]
-                    if headers and len(values) == len(headers):
-                        current_snapshot_data.append(values)
-                except (ValueError, IndexError):
-                     # This will slow down the process, so it's commented out by default
-                     # print(f"Warning: Skipping malformed data line: {line}")
-                     pass
+            try:
+                # Read values directly into the flat buffer
+                start = current_point_index * num_variables
+                end = start + num_variables
+                snapshot_buffer[start:end] = np.fromstring(line, dtype=dtype, sep=' ')
+                current_point_index += 1
+            except (ValueError, IndexError) as e:
+                # Raise an error for malformed lines instead of silently passing
+                raise ValueError(
+                    f"Error parsing data on line {line_num + 1}: '{line}'\n"
+                    f"Expected {num_variables} values, but could not parse.\n"
+                    f"Original error: {e}"
+                )
 
+    # Process the very last snapshot after the loop finishes
+    if current_snapshot_index > -1:
+        grid_zyx_view = snapshot_buffer.reshape((nz, ny, nx, num_variables))
+        grid_xyz_transposed_view = grid_zyx_view.transpose(2, 1, 0, 3)
+        timeseries_data[current_snapshot_index] = np.ascontiguousarray(grid_xyz_transposed_view)
 
-    # After the loop, append the final snapshot if it exists.
-    if current_snapshot_data:
-        snapshot_count += 1
-        snapshot_np = np.array(current_snapshot_data, dtype=dtype)
-        all_snapshots_np.append(snapshot_np)
-
-    if not all_snapshots_np:
-        print("Warning: No data was parsed.")
-        return np.empty((0, 0, 0), dtype=dtype), []
-
-    # Verify that all snapshots have a consistent number of points.
-    first_snapshot_points = all_snapshots_np[0].shape[0]
-    if not all(snap.shape[0] == first_snapshot_points for snap in all_snapshots_np):
-        print("Warning: Snapshots have an inconsistent number of data points.")
-
-
-    print("\nAll snapshots processed. Stacking into a final 3D array...")
-    # FIX: Convert the tqdm iterator back to a list before passing to np.stack
-    timeseries_array = np.stack(list(tqdm(all_snapshots_np, desc="Stacking Snapshots")))
-    print("Stacking complete.")
-
-
+    print("\nData parsing complete.")
     try:
         print(f"Data parsed successfully from path: {file_path.resolve(strict=True)}")
     except FileNotFoundError:
         print(f"Data parsed from non-resolvable path: {file_path}")
 
-    return timeseries_array, headers
+    return timeseries_data, headers

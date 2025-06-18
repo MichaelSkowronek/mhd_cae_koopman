@@ -11,19 +11,22 @@ saved data.
 """
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 # Attempt to import necessary modules. Provide guidance if imports fail.
 try:
-    from mhd_cae_koopman.utils import save_object, load_object
     from mhd_cae_koopman.data_processing.tecplot_data import parse_tecplot_timeseries
     from mhd_cae_koopman.data_processing.utils import print_timeseries_info
+    from mhd_cae_koopman.utils import load_object
+    from mhd_cae_koopman.utils import save_object
 except ImportError as e:
     print(f"Error importing modules: {e}")
-    print("\nPlease ensure that the 'mhd_cae_koopman' package is installed and accessible.")
-    print("You might need to install it (e.g., 'pip install .') or adjust your PYTHONPATH.")
+    print(
+        "\nPlease ensure that the 'mhd_cae_koopman' package is installed and "
+        "accessible."
+    )
+    print("You might need to install it (e.g., 'pip install -e .') or adjust your PYTHONPATH.")
     sys.exit(1)
 
 
