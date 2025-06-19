@@ -16,8 +16,9 @@ from tqdm import tqdm
 from typing import Tuple, List
 
 
-def _pre_scan_tecplot(file_path: Path) -> Tuple[int, int, int, int, List[str]]:
+def _pre_scan_tecplot(file_path: Path, debug: bool = False) -> Tuple[int, int, int, int, List[str]]:
     """Performs a quick first pass to determine the file's complete structure."""
+    if debug: print("  [Debug] Starting pre-scan...")
     num_snapshots = 0
     headers = []
     
@@ -25,17 +26,27 @@ def _pre_scan_tecplot(file_path: Path) -> Tuple[int, int, int, int, List[str]]:
     re_variables = re.compile(r'variables', re.IGNORECASE)
 
     # First, find total snapshots and headers
+    if debug: print("  [Debug] First pass: counting snapshots and finding headers...")
     with file_path.open('r') as f:
         for line in f:
+            line = line.strip()
             if re_title.match(line):
                 num_snapshots += 1
             elif re_variables.match(line) and not headers:
                 headers = [h.strip('"') for h in re.findall(r'"(.*?)"', line)]
+    
+    if debug: print(f"  [Debug] First pass results: num_snapshots={num_snapshots}, headers_found={bool(headers)}")
 
     if num_snapshots == 0:
+        if debug: print("  [Debug] Error: No 'TITLE' lines found in the file.")
+        return 0, 0, 0, 0, []
+    if not headers:
+        if debug: print("  [Debug] Error: No 'VARIABLES' line found in the file.")
         return 0, 0, 0, 0, []
 
+
     # Second, read all points of the first snapshot to determine grid dimensions
+    if debug: print("  [Debug] Second pass: reading points from the first snapshot...")
     first_snapshot_points = []
     in_first_snapshot = False
     with file_path.open('r') as f:
@@ -55,22 +66,30 @@ def _pre_scan_tecplot(file_path: Path) -> Tuple[int, int, int, int, List[str]]:
                 except ValueError:
                     continue
     
+    if debug: print(f"  [Debug] Second pass results: found {len(first_snapshot_points)} data points in the first snapshot.")
+    
     if not first_snapshot_points:
+        if debug: print("  [Debug] Error: Found snapshot title, but no valid data points followed.")
         return num_snapshots, 0, 0, 0, headers
 
     # Calculate grid dimensions from the collected points
+    if debug: print("  [Debug] Calculating grid dimensions from unique coordinates...")
     first_snapshot_arr = np.array(first_snapshot_points)
     nx = len(np.unique(first_snapshot_arr[:, 0]))
     ny = len(np.unique(first_snapshot_arr[:, 1]))
     nz = len(np.unique(first_snapshot_arr[:, 2]))
+    if debug: print(f"  [Debug] Calculated unique counts: nx={nx}, ny={ny}, nz={nz}")
+
 
     if nx * ny * nz != len(first_snapshot_arr):
+        if debug: print("  [Debug] Error: Grid dimension mismatch.")
         raise ValueError(
             "The data does not form a complete structured grid. "
             f"Calculated dimensions {nx}x{ny}x{nz}={nx*ny*nz} do not match "
             f"the number of points found ({len(first_snapshot_arr)})."
         )
-
+    
+    if debug: print("  [Debug] Pre-scan successful.")
     return num_snapshots, nx, ny, nz, headers
 
 
@@ -78,6 +97,7 @@ def parse_tecplot_timeseries(
     file_path: Path,
     *,
     dtype=np.float64,
+    debug: bool = False,
 ) -> Tuple[np.ndarray, List[str]]:
     """
     Parses a large Tecplot ASCII timeseries file into a 5D NumPy array using a
@@ -88,6 +108,8 @@ def parse_tecplot_timeseries(
         file_path (pathlib.Path or str): The path to the Tecplot data file.
         dtype (type, optional): The target NumPy data type for the array.
                                 Defaults to np.float64.
+        debug (bool, optional): If True, prints detailed diagnostic information
+                                during parsing. Defaults to False.
 
     Returns:
         tuple: A tuple containing:
@@ -97,9 +119,9 @@ def parse_tecplot_timeseries(
     file_path = Path(file_path)
 
     print("Pre-scanning Tecplot file to determine structure...")
-    num_snapshots, nx, ny, nz, headers = _pre_scan_tecplot(file_path)
+    num_snapshots, nx, ny, nz, headers = _pre_scan_tecplot(file_path, debug=debug)
     
-    if num_snapshots == 0 or not headers:
+    if num_snapshots == 0 or not headers or nx == 0:
         print("Warning: Could not determine file structure. No data will be parsed.")
         return np.empty((0, 0, 0, 0, 0), dtype=dtype), []
 

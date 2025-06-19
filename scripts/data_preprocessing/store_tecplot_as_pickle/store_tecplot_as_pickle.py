@@ -33,6 +33,7 @@ except ImportError as e:
 def process_tecplot_data(
     tecplot_file: Path,
     output_path: Path,
+    debug: bool = False,
     verify: bool = False,
     verbose: bool = True,
 ):
@@ -42,6 +43,8 @@ def process_tecplot_data(
     Args:
         tecplot_file (Path): The path to the input Tecplot .dat file.
         output_path (Path): The path where the output .pkl file will be saved.
+        debug (bool, optional): If True, passes debug flag to the parser for
+                                detailed output. Defaults to False.
         verify (bool, optional): If True, loads the pickle file after saving to
                                  verify its contents. Defaults to False.
         verbose (bool, optional): If True, prints detailed information about the
@@ -53,7 +56,10 @@ def process_tecplot_data(
 
     print(f"Loading data from: {tecplot_file}")
     data = {}
-    data['timeseries'], data['labels'] = parse_tecplot_timeseries(tecplot_file)
+    data['timeseries'], data['labels'] = parse_tecplot_timeseries(
+        tecplot_file,
+        debug=debug
+    )
 
     if verbose:
         print("\n--- Loaded Data Summary ---")
@@ -99,6 +105,11 @@ def main():
         help="Path to the main data directory.",
     )
     parser.add_argument(
+        "--debug",
+        action='store_true',
+        help="Enable detailed diagnostic output from the parser.",
+    )
+    parser.add_argument(
         "--verify",
         action='store_true',
         help="If set, verify the pickle file after creation by loading it.",
@@ -122,6 +133,7 @@ def main():
     process_tecplot_data(
         tecplot_file=tecplot_file_path,
         output_path=pkl_store_file_path,
+        debug=args.debug,
         verify=args.verify,
         verbose=not args.quiet,
     )
