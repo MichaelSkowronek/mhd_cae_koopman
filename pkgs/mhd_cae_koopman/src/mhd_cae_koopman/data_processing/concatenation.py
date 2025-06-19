@@ -4,18 +4,14 @@ Data Loading and Concatenation Utilities
 =========================================
 
 This module provides a high-level function to load, validate, and concatenate
-multiple 3D timeseries datasets. It is designed to work with Python objects
-stored in files, where each object is a dictionary containing 'timeseries'
-and 'labels'.
-
-The primary function ensures consistency in dimensions (timesteps, points) and
-spatial coordinates across the datasets before merging them into a single,
-comprehensive dataset.
+multiple 3D timeseries datasets stored in the 5D format
+(timesteps, nx, ny, nz, variables).
 """
 
+import gc
 import numpy as np
-
-from mhd_cae_koopman.utils import load_object
+from tqdm import tqdm
+from mhd_cae_koopman.utils.pickle_io import load_object
 
 
 def load_and_concatenate_data(
@@ -24,104 +20,110 @@ def load_and_concatenate_data(
     path_dv,
     path_dw,
 ):
-    """Loads, validates, and concatenates four timeseries datasets.
+    """Loads, validates, and concatenates four 5D timeseries datasets.
 
-    This function orchestrates the process of merging four datasets. It treats
-    the first dataset as the base and validates the others against it to ensure
-    that the number of timesteps, the number of data points, and the coordinate
-    data for the first time entry are identical.
-
-    Once validated, it concatenates the datasets along the variable axis,
-    ensuring that the shared coordinate variables ('x', 'y', 'z') are included
-    only once in the final merged dataset.
+    This function uses a highly memory-efficient, two-pass strategy. It first
+    scans each file to gather metadata without holding them all in memory,
+    then pre-allocates the final array, and finally copies data from each
+    file one by one. It includes validation of grid dimensions and coordinates.
 
     Args:
-        path_vxyz_jxyz_p_f (str): Path to the base dataset file.
-        path_du (str): Path to the 'du' dataset file.
-        path_dv (str): Path to the 'dv' dataset file.
-        path_dw (str): Path to the 'dw' dataset file.
+        path_vxyz_jxyz_p_f (str or Path): Path to the base dataset file.
+        path_du (str or Path): Path to the 'du' dataset file.
+        path_dv (str or Path): Path to the 'dv' dataset file.
+        path_dw (str or Path): Path to the 'dw' dataset file.
 
     Returns:
         dict: A dictionary containing the concatenated data, with two keys:
-            - 'timeseries' (numpy.ndarray): The merged 3D NumPy array.
+            - 'timeseries' (numpy.ndarray): The merged 5D NumPy array.
             - 'labels' (list): The merged list of variable labels.
-
-    Raises:
-        ValueError: If any data file cannot be loaded, or if the datasets
-            are inconsistent in their dimensions or coordinate data.
     """
-    print("--- Starting Data Loading ---")
-    datasets_to_load = {
+    datasets_to_process = {
         'vxyz_jxyz_p_f': path_vxyz_jxyz_p_f,
         'du': path_du,
         'dv': path_dv,
         'dw': path_dw
     }
-    
-    loaded_data = {
-        name: load_object(path) for name, path in datasets_to_load.items()
-    }
-
-    if any(data is None for data in loaded_data.values()):
-        raise ValueError("One or more data files could not be loaded. Aborting.")
-
-    print("\n--- Starting Validation ---")
-    
     base_name = 'vxyz_jxyz_p_f'
-    base_data = loaded_data[base_name]
-    base_timeseries = base_data['timeseries']
-    base_labels = base_data['labels']
-    base_timesteps, base_points, _ = base_timeseries.shape
-
-    print(f"Base dataset ('{base_name}') shape: {base_timeseries.shape}")
-
-    # --- Validation Checks ---
-    other_datasets = loaded_data.copy()
-    del other_datasets[base_name]
-
-    for name, data in other_datasets.items():
-        current_timeseries = data['timeseries']
-        current_labels = data['labels']
-        print(f"Validating dataset: '{name}' with shape {current_timeseries.shape}")
-
-        if (current_timeseries.shape[0] != base_timesteps or
-                current_timeseries.shape[1] != base_points):
-            raise ValueError(
-                f"Dimension mismatch in '{name}'. "
-                f"Expected ({base_timesteps}, {base_points}, N), "
-                f"but got {current_timeseries.shape}."
-            )
-
-        if base_labels[:3] != current_labels[:3]:
-            raise ValueError(
-                f"Coordinate labels do not match between '{base_name}' "
-                f"({base_labels[:3]}) and '{name}' ({current_labels[:3]})."
-            )
-
-        if not np.allclose(base_timeseries[0, :, :3], current_timeseries[0, :, :3]):
-            raise ValueError(
-                f"Coordinate values at t=0 do not match between "
-                f"'{base_name}' and '{name}'."
-            )
+    
+    # --- Pass 1: Metadata Scan (Memory-Safe) ---
+    print("--- Pass 1: Scanning files for metadata ---")
+    metadata = {}
+    base_coords_t0 = None
+    for name, path in tqdm(datasets_to_process.items(), desc="Scanning files"):
+        data = load_object(path)
+        if data is None:
+            raise ValueError(f"File '{name}' at {path} could not be loaded.")
         
-        print(f"Validation passed for '{name}'.")
+        metadata[name] = {
+            'shape': data['timeseries'].shape,
+            'labels': data['labels']
+        }
+        
+        # If this is the base file, store its first-timestep coordinates for later validation
+        if name == base_name:
+            base_coords_t0 = data['timeseries'][0, ..., :3].copy()
+        
+        del data
+        gc.collect()
 
-    print("\n--- All validations successful. Starting Concatenation ---")
-
-    # --- Concatenation ---
-    timeseries_list = [base_timeseries]
-    labels_list = [base_labels]
+    # --- Step 2: Validation and Pre-allocation ---
+    print("\n--- Starting Validation ---")
+    base_meta = metadata[base_name]
+    base_shape = base_meta['shape']
     
-    for data in other_datasets.values():
-        timeseries_list.append(data['timeseries'][:, :, 3:])
-        labels_list.append(data['labels'][3:])
+    if len(base_shape) != 5:
+        raise ValueError(f"Base dataset '{base_name}' is not 5D. Shape: {base_shape}")
+        
+    base_timesteps, base_nx, base_ny, base_nz, _ = base_shape
+    print(f"Base dataset ('{base_name}') shape: {base_shape}")
 
-    final_timeseries = np.concatenate(timeseries_list, axis=2)
-    print(f"Concatenated timeseries shape: {final_timeseries.shape}")
+    total_variables = 0
+    for name, meta in metadata.items():
+        if name == base_name:
+            total_variables += meta['shape'][4]
+        else:
+            # Grid dimension validation
+            if (meta['shape'][0] != base_timesteps or meta['shape'][1] != base_nx or \
+                meta['shape'][2] != base_ny or meta['shape'][3] != base_nz):
+                raise ValueError(f"Dimension mismatch in '{name}'. Expected consistent grid, got {meta['shape']}")
+            total_variables += meta['shape'][4] - 3 # Exclude x, y, z
 
-    final_labels = [label for sublist in labels_list for label in sublist]
-    print(f"Concatenated labels count: {len(final_labels)}")
+    final_shape = (base_timesteps, base_nx, base_ny, base_nz, total_variables)
+    print(f"Pre-allocating final array with shape: {final_shape}")
+    final_timeseries = np.zeros(final_shape, dtype=np.float64) # Assuming float64
     
+    # --- Pass 2: Data Copying and Coordinate Validation (Memory-Safe) ---
+    print("\n--- Pass 2: Merging data into final array ---")
+    current_var_index = 0
+    
+    for name, path in tqdm(datasets_to_process.items(), desc="Merging datasets"):
+        data = load_object(path)
+        timeseries = data['timeseries']
+        
+        if name == base_name:
+            num_vars_to_copy = timeseries.shape[4]
+            final_timeseries[..., :num_vars_to_copy] = timeseries
+        else:
+            # Coordinate value validation
+            if not np.allclose(timeseries[0, ..., :3], base_coords_t0):
+                raise ValueError(f"Coordinate values at t=0 do not match between base and '{name}'.")
+            
+            num_vars_to_copy = timeseries.shape[4] - 3
+            final_timeseries[..., current_var_index : current_var_index + num_vars_to_copy] = timeseries[..., 3:]
+        
+        current_var_index += num_vars_to_copy
+        del data, timeseries
+        gc.collect()
+
+    # --- Finalization ---
+    final_labels = metadata[base_name]['labels'] + \
+                   metadata['du']['labels'][3:] + \
+                   metadata['dv']['labels'][3:] + \
+                   metadata['dw']['labels'][3:]
+    
+    print(f"\nFinal concatenated timeseries shape: {final_timeseries.shape}")
+    print(f"Final concatenated labels count: {len(final_labels)}")
     print("\n--- Concatenation Complete ---")
     
     return {

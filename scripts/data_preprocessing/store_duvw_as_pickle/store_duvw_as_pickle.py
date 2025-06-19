@@ -20,8 +20,8 @@ import numpy as np
 try:
     from mhd_cae_koopman.data_processing.duvw import parse_duvw_binary
     from mhd_cae_koopman.data_processing.utils import print_timeseries_info
-    from mhd_cae_koopman.utils import load_object
-    from mhd_cae_koopman.utils import save_object
+    from mhd_cae_koopman.utils.pickle_io import load_object
+    from mhd_cae_koopman.utils.pickle_io import save_object
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print(
