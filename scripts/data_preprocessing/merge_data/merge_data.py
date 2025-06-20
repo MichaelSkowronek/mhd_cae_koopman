@@ -5,8 +5,8 @@
 Merges processed data files into a single comprehensive dataset.
 
 This script loads the individual processed .pkl files for a given Hartmann
-number, validates their consistency, and concatenates them into a single,
-compressed (default) or uncompressed .npz file.
+number (vxyz_jxyz_p_f, du, dv, dw), validates their consistency, and
+concatenates them into a single, compressed .npz file.
 """
 
 import argparse
@@ -15,6 +15,7 @@ import gc
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
 # Attempt to import necessary modules.
 try:
@@ -73,9 +74,11 @@ def process_and_merge_data(
         if verify:
             print("\n--- Verification Step (First Snapshot Only & Memory-Safe) ---")
 
+            # Keep a small copy of the first snapshot for comparison
             original_first_snapshot = concatenated_data['timeseries'][0].copy()
             original_labels = concatenated_data['labels']
 
+            # Free memory from the large concatenated object before reloading
             print("Releasing memory from original concatenated data...")
             del concatenated_data
             gc.collect()
@@ -83,19 +86,27 @@ def process_and_merge_data(
             print(f"Loading final data from file for verification: {output_path}")
             loaded_final_data = load_numpy_object(output_path)
             
+            # Print info for the reloaded data
             print_timeseries_info(
                 loaded_final_data['timeseries'],
-                loaded_final_data['labels']
+                loaded_final_data['labels'],
             )
 
-            assert original_first_snapshot.shape == loaded_final_data['timeseries'][0].shape, "Shape mismatch."
-            assert original_labels == loaded_final_data['labels'], "Label mismatch."
+            # Verify shapes and labels first
+            assert original_first_snapshot.shape == loaded_final_data['timeseries'][0].shape, "Shape mismatch during verification."
+            
+            # Convert loaded labels (a numpy array) to a list for unambiguous comparison
+            loaded_labels_list = list(loaded_final_data['labels'])
+            assert original_labels == loaded_labels_list, "Label mismatch during verification."
 
             print("Verifying array data integrity for the first snapshot...")
+            
+            # Compare only the first snapshot (t=0) for a quick verification
             if np.array_equal(original_first_snapshot, loaded_final_data['timeseries'][0]):
                 print("Verification successful: First snapshot matches.")
             else:
-                raise AssertionError("Verification failed: Data mismatch in the first snapshot.")
+                # Ensure the script exits with an error code if verification fails
+                raise AssertionError("Verification failed: Data mismatch found in the first snapshot.")
 
     except (ValueError, FileNotFoundError) as e:
         print(f"\nAn error occurred during data processing: {e}")
