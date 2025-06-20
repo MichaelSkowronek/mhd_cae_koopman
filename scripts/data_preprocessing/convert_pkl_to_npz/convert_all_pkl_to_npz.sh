@@ -10,7 +10,7 @@ set -e
 
 # --- Configuration ---
 HA_NUMBERS=(300 500 700 1000)
-DATA_DIR="../../../../../../data/"
+DATA_DIR="../../../../../../data"
 CONVERTER_SCRIPT="pkl_to_npz_converter.py"
 FILE_NAMES=(
     "vxyz_jxyz_p_f"
