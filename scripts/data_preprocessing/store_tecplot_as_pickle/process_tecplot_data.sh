@@ -11,7 +11,7 @@ set -e
 # --- Configuration ---
 HA_NUMBERS=(300 500 700 1000)
 FILE_NAME="vxyz_jxyz_p_f.dat"
-DATA_DIR="../../../../../../data/"
+DATA_DIR="../../../../../../data"
 PYTHON_SCRIPT="store_tecplot_as_pickle.py"
 
 # --- Main Processing Loop ---

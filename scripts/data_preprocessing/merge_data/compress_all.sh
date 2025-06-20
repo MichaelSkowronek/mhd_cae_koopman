@@ -10,7 +10,7 @@ set -e
 
 # --- Configuration ---
 HA_NUMBERS=(300 500 700 1000)
-DATA_DIR="../../../../../../data/"
+DATA_DIR="../../../../../../data"
 COMPRESS_SCRIPT="compress_npz.py"
 
 # --- Main Processing Loop ---

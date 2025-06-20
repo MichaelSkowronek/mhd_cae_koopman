@@ -12,7 +12,7 @@ set -e
 # --- Configuration ---
 HA_NUMBERS=(300 500 700 1000)
 FILE_PREFIXES=("du" "dv" "dw")
-DATA_DIR="../../../../../../data/"
+DATA_DIR="../../../../../../data"
 PYTHON_SCRIPT="store_duvw_as_pickle.py"
 
 # --- Main Processing Loop ---
