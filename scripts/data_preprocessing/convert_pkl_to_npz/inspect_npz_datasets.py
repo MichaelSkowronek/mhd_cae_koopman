@@ -66,10 +66,29 @@ def main():
         description="Inspect individual NPZ datasets by printing their summary.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--ha", type=int, required=True, help="Hartmann number (Ha) to specify the data subdirectory.")
-    parser.add_argument("--data_dir", type=Path, required=True, help="Path to the main data directory.")
-    parser.add_argument("--file_name", type=str, required=True, help="Name of the .npz file to inspect (e.g., du.npz).")
-    parser.add_argument("--quiet", action='store_true', help="If set, suppress detailed print output.")
+    parser.add_argument(
+        "--ha",
+        type=int,
+        required=True,
+        help="Hartmann number (Ha) to specify the data subdirectory.",
+    )
+    parser.add_argument(
+        "--data_dir",
+        type=Path,
+        required=True,
+        help="Path to the main data directory.",
+    )
+    parser.add_argument(
+        "--file_name",
+        type=str,
+        required=True,
+        help="Name of the .npz file to inspect (e.g., du.npz).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="If set, suppress detailed print output.",
+    )
     args = parser.parse_args()
 
     base_data_path = args.data_dir / f"re1000_ha{args.ha}/3d/pkl/"

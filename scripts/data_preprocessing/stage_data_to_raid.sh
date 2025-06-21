@@ -12,9 +12,10 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Configuration ---
-# The base path for your permanent data storage.
-SRC_BASE="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
+# --- User Configuration ---
+# IMPORTANT: Set this variable to the absolute path of your top-level source data directory.
+# This is the only line you should need to edit for the source path.
+DATA_DIR="/cephfs/users/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
 
 # The base path for your temporary high-speed storage.
 DEST_BASE="/raid/skowronek"
@@ -24,6 +25,24 @@ DEST_BASE="/raid/skowronek"
 FILES_TO_COPY=(
     "vxyz_jxyz_p_f_du_dv_dw_uncompressed.npz"
 )
+
+# --- Script Configuration ---
+# Get the absolute path of the directory where this script is located.
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# --- Sanity Checks ---
+if [ "$DATA_DIR" == "/path/to/your/data_directory" ]; then
+    echo "Error: Please edit this script and set the DATA_DIR variable to the correct path." >&2
+    exit 1
+fi
+
+if [ ! -d "$DATA_DIR" ]; then
+    echo "Error: The specified source data directory does not exist: $DATA_DIR" >&2
+    exit 1
+fi
+
+# The base path for your permanent data storage (derived from DATA_DIR).
+SRC_BASE="${DATA_DIR}"
 
 # --- Argument Parsing ---
 # Initialize an empty array to hold the Ha numbers to be processed.

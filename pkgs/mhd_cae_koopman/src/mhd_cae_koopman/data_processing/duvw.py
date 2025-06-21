@@ -6,11 +6,22 @@ This module provides functionality to parse the binary 'duvw' data files.
 import os
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple
+from typing import (
+    List,
+    Tuple,
+)
 from tqdm import tqdm
 
 
-def _parse_memory_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes) -> np.ndarray:
+def _parse_memory_optimized(
+    f,
+    num_timesteps,
+    nx,
+    ny,
+    nz,
+    num_variables,
+    header_size_bytes,
+) -> np.ndarray:
     """Processes the file iteratively, optimizing for low memory usage."""
     print("  Processing with memory-optimized strategy (slower, less RAM).")
     timeseries_data = np.zeros(
@@ -32,7 +43,15 @@ def _parse_memory_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_
     return timeseries_data
 
 
-def _parse_speed_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_size_bytes) -> np.ndarray:
+def _parse_speed_optimized(
+    f,
+    num_timesteps,
+    nx,
+    ny,
+    nz,
+    num_variables,
+    header_size_bytes,
+) -> np.ndarray:
     """Processes the file in a single vectorized operation, optimizing for speed."""
     print("  Processing with speed-optimized strategy (faster, more RAM).")
     
@@ -57,7 +76,10 @@ def _parse_speed_optimized(f, num_timesteps, nx, ny, nz, num_variables, header_s
     return timeseries_data
 
 
-def parse_duvw_binary(file_path: Path, memory_optimized: bool = True) -> Tuple[np.ndarray, List[str]]:
+def parse_duvw_binary(
+    file_path: Path,
+    memory_optimized: bool = True,
+) -> Tuple[np.ndarray, List[str]]:
     """
     Reads a binary data file containing one or more timesteps efficiently.
 

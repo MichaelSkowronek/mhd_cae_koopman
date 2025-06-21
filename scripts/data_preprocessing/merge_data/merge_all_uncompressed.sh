@@ -8,10 +8,33 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Configuration ---
+# --- User Configuration ---
+# IMPORTANT: Set this variable to the absolute path of your top-level data directory.
+# This is the only line you should need to edit.
+DATA_DIR="/home/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
+
+# --- Script Configuration ---
 HA_NUMBERS=(300 500 700 1000)
-DATA_DIR="../../../../../../data"
-MERGE_SCRIPT="merge_data.py"
+
+# Get the absolute path of the directory where this script is located.
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+MERGE_SCRIPT="${SCRIPT_DIR}/merge_data.py"
+
+# --- Sanity Checks ---
+if [ "$DATA_DIR" == "/path/to/your/data_directory" ]; then
+    echo "Error: Please edit this script and set the DATA_DIR variable to the correct path." >&2
+    exit 1
+fi
+
+if [ ! -d "$DATA_DIR" ]; then
+    echo "Error: The specified data directory does not exist: $DATA_DIR" >&2
+    exit 1
+fi
+
+if [ ! -f "$MERGE_SCRIPT" ]; then
+    echo "Error: The python helper script was not found at: $MERGE_SCRIPT" >&2
+    exit 1
+fi
 
 # --- Main Processing Loop ---
 echo "================================================="

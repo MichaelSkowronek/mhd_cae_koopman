@@ -21,8 +21,10 @@ from tqdm import tqdm
 try:
     from mhd_cae_koopman.data_processing.concatenation import load_and_concatenate_data
     from mhd_cae_koopman.data_processing.utils import print_timeseries_info
-    # Import the NEW numpy-based save/load functions
-    from mhd_cae_koopman.utils.numpy_io import save_numpy_object, load_numpy_object
+    from mhd_cae_koopman.utils.numpy_io import (
+        load_numpy_object,
+        save_numpy_object,
+    )
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print(
