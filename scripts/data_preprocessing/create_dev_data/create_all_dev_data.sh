@@ -11,8 +11,8 @@ set -e
 # --- User Configuration ---
 # IMPORTANT: Set this variable to the absolute path of your top-level data directory.
 # This is the only line you should need to edit.
-# DATA_DIR="/home/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
-DATA_DIR="/raid/skowronek/"
+DATA_DIR="/home/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
+# DATA_DIR="/raid/skowronek/"
 
 # --- Script Configuration ---
 # HA_NUMBERS=(300 500 700 1000)
