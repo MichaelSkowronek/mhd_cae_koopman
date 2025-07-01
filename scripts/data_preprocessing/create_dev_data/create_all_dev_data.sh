@@ -11,11 +11,13 @@ set -e
 # --- User Configuration ---
 # IMPORTANT: Set this variable to the absolute path of your top-level data directory.
 # This is the only line you should need to edit.
-DATA_DIR="/home/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
+# DATA_DIR="/home/skowronek/Documents/PhD/nuclear_fusion_cooling/data"
+DATA_DIR="/raid/skowronek/"
 
 # --- Script Configuration ---
-HA_NUMBERS=(300 500 700 1000)
-NUM_SNAPSHOTS=2
+# HA_NUMBERS=(300 500 700 1000)
+HA_NUMBERS=(1000)
+NUM_SNAPSHOTS=8
 
 # Get the absolute path of the directory where this script is located to robustly find other scripts.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -49,7 +51,7 @@ for ha in "${HA_NUMBERS[@]}"; do
     # Define the input and output filenames
     BASE_PATH="${DATA_DIR}/re1000_ha${ha}/3d/pkl"
     INPUT_FILE="${BASE_PATH}/vxyz_jxyz_p_f_du_dv_dw_uncompressed.npz"
-    OUTPUT_FILE="${BASE_PATH}/vxyz_jxyz_p_f_du_dv_dw_dev.npz"
+    OUTPUT_FILE="${BASE_PATH}/vxyz_jxyz_p_f_du_dv_dw_dev_8.npz"
 
     # Construct and run the command to create the dev set
     COMMAND="python $PYTHON_SCRIPT --input_file $INPUT_FILE --output_file $OUTPUT_FILE --snapshots $NUM_SNAPSHOTS"
